@@ -1,4 +1,4 @@
-module github.com/example/readonly-db-mcp
+module github.com/sam-adam/db-mcp
 
 go 1.22
 

@@ -5,7 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/example/readonly-db-mcp/internal/manager"
+	"github.com/sam-adam/db-mcp/internal/manager"
 	"io"
 	"log/slog"
 )

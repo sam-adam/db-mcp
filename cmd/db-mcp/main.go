@@ -9,9 +9,9 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/example/readonly-db-mcp/internal/config"
-	"github.com/example/readonly-db-mcp/internal/manager"
-	"github.com/example/readonly-db-mcp/internal/mcp"
+	"github.com/sam-adam/db-mcp/internal/config"
+	"github.com/sam-adam/db-mcp/internal/manager"
+	"github.com/sam-adam/db-mcp/internal/mcp"
 )
 
 func main() {

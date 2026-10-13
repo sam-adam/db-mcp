@@ -12,10 +12,10 @@ import (
 	"sync"
 	"time"
 
-	"github.com/example/readonly-db-mcp/internal/config"
-	"github.com/example/readonly-db-mcp/internal/tunnel"
 	_ "github.com/go-sql-driver/mysql"
 	_ "github.com/lib/pq"
+	"github.com/sam-adam/db-mcp/internal/config"
+	"github.com/sam-adam/db-mcp/internal/tunnel"
 )
 
 var ErrUnsafeSQL = errors.New("only read-only SELECT, WITH, SHOW, and EXPLAIN queries are permitted")
