@@ -1,0 +1,36 @@
+version: 1
+defaults:
+  readonly: true
+  connect_timeout: 10s
+  query_timeout: 30s
+  max_rows: 500
+ssh_profiles:
+  production-bastion:
+    host: bastion.example.internal
+    port: 22
+    username: ubuntu
+    private_key_file: /absolute/path/production-bastion.pem
+    # private_key_passphrase_file: /absolute/path/key-passphrase
+    host_key_policy: known_hosts
+    known_hosts_file: /absolute/path/known_hosts
+    keepalive_interval: 30s
+    keepalive_failures: 3
+    reconnect: { enabled: true, initial_delay: 1s, max_delay: 30s }
+connections:
+  - id: aki-prod
+    driver: mysql
+    host: private-aki-db.example.internal
+    port: 3306
+    database: app_db
+    username: db_reader
+    password_file: /absolute/path/aki-prod-password
+    ssh_profile: production-bastion
+    readonly: true
+  - id: local-postgres
+    driver: postgres
+    host: 127.0.0.1
+    port: 5432
+    database: development
+    username: reader
+    password_file: /absolute/path/local-postgres-password
+    readonly: true

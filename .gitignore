@@ -1,0 +1,20 @@
+# Go build and test output
+/db-mcp
+*.test
+*.out
+coverage.html
+
+# Local tool caches and scratch space
+/work/
+
+# Machine-specific runtime configuration and secrets
+/config.yaml
+/.env
+/.env.*
+*.pem
+*.key
+*.p12
+*.pfx
+*.pass
+*.secret
+known_hosts.local
