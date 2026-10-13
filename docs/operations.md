@@ -16,6 +16,12 @@ An SSH profile owns a single long-lived transport. Each configured database endp
 
 An open SSH socket is not a database health assertion. Keepalives verify that the SSH transport responds; `db_connection_status` additionally runs a bounded `SELECT version()` against the database.
 
+## Releases
+
+`develop` produces CI-tested release-candidate build artifacts. Stable releases are created only by pushing an immutable `v*` tag for a commit already contained in `main`. The release workflow verifies source formatting, modules, vet, race-enabled tests, and builds archives for Linux amd64/arm64 and macOS amd64/arm64. It then publishes the archives and `checksums.txt` to the GitHub Release.
+
+Create the tag only after the release PR is merged into `main`, for example: `git tag -a v0.1.0 -m 'v0.1.0' && git push origin v0.1.0`. The workflow intentionally fails if the tagged commit is not in `main`.
+
 ## Feature matrix
 
 | Capability | Status |
