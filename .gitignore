@@ -1,5 +1,6 @@
 # Go build and test output
 /db-mcp
+/dist/
 *.test
 *.out
 coverage.html
