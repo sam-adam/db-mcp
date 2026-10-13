@@ -25,10 +25,10 @@ jobs:
           go-version: '1.22.x'
           check-latest: true
           cache: true
-      - name: Require a commit contained in master
+      - name: Require a commit contained in main
         run: |
-          git fetch origin master
-          git merge-base --is-ancestor "$GITHUB_SHA" origin/master
+          git fetch origin main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
       - name: Verify source
         run: |
           go mod tidy
