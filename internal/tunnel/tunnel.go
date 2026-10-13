@@ -40,23 +40,23 @@ type Status struct {
 	Generation        uint64    `json:"generation"`
 }
 type Tunnel struct {
-	profileID, destination string
-	profile                config.SSHProfile
-	logger                 *slog.Logger
-	listener               net.Listener
-	mu                     sync.RWMutex
-	client                 *ssh.Client
-	state                  State
-	lastErr                string
-	connected              time.Time
-	attempts               uint64
-	generation             uint64
-	cancel                 context.CancelFunc
-	done                   chan struct{}
-	started                atomic.Bool
+	profileID  string
+	profile    config.SSHProfile
+	logger     *slog.Logger
+	listeners  map[string]net.Listener
+	mu         sync.RWMutex
+	client     *ssh.Client
+	state      State
+	lastErr    string
+	connected  time.Time
+	attempts   uint64
+	generation uint64
+	cancel     context.CancelFunc
+	done       chan struct{}
+	started    atomic.Bool
 }
 
-func New(profileID string, p config.SSHProfile, destination string, logger *slog.Logger) *Tunnel {
+func New(profileID string, p config.SSHProfile, logger *slog.Logger) *Tunnel {
 	if p.Port == 0 {
 		p.Port = 22
 	}
@@ -72,33 +72,48 @@ func New(profileID string, p config.SSHProfile, destination string, logger *slog
 	if p.Reconnect.MaxDelay.Value() == 0 {
 		p.Reconnect.MaxDelay = config.Duration(30 * time.Second)
 	}
-	return &Tunnel{profileID: profileID, profile: p, destination: destination, logger: logger, state: Disconnected, done: make(chan struct{})}
+	return &Tunnel{profileID: profileID, profile: p, logger: logger, listeners: map[string]net.Listener{}, state: Disconnected, done: make(chan struct{})}
 }
 func (t *Tunnel) Start(ctx context.Context) error {
 	if !t.started.CompareAndSwap(false, true) {
 		return nil
 	}
-	l, err := net.Listen("tcp", "127.0.0.1:0")
-	if err != nil {
-		return err
-	}
-	t.listener = l
 	runCtx, cancel := context.WithCancel(ctx)
 	t.cancel = cancel
-	go t.accept(runCtx)
 	go t.maintain(runCtx)
 	return nil
 }
-func (t *Tunnel) Address() string {
-	if t.listener == nil {
-		return ""
+
+// AddDestination creates a loopback-only forward for one configured endpoint.
+// The endpoint is supplied by the trusted configuration manager, never MCP input.
+func (t *Tunnel) AddDestination(ctx context.Context, destination string) (string, error) {
+	t.mu.Lock()
+	if l := t.listeners[destination]; l != nil {
+		a := l.Addr().String()
+		t.mu.Unlock()
+		return a, nil
 	}
-	return t.listener.Addr().String()
+	t.mu.Unlock()
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return "", err
+	}
+	t.mu.Lock()
+	if existing := t.listeners[destination]; existing != nil {
+		a := existing.Addr().String()
+		t.mu.Unlock()
+		_ = l.Close()
+		return a, nil
+	}
+	t.listeners[destination] = l
+	t.mu.Unlock()
+	go t.accept(ctx, l, destination)
+	return l.Addr().String(), nil
 }
 func (t *Tunnel) Status() Status {
 	t.mu.RLock()
 	defer t.mu.RUnlock()
-	return Status{Profile: t.profileID, State: t.state, LocalAddress: t.Address(), LastError: t.lastErr, LastConnected: t.connected, ReconnectAttempts: t.attempts, Generation: t.generation}
+	return Status{Profile: t.profileID, State: t.state, LastError: t.lastErr, LastConnected: t.connected, ReconnectAttempts: t.attempts, Generation: t.generation}
 }
 func (t *Tunnel) set(state State, err error) {
 	t.mu.Lock()
@@ -217,22 +232,22 @@ func (t *Tunnel) keepalive(ctx context.Context, c *ssh.Client) error {
 		}
 	}
 }
-func (t *Tunnel) accept(ctx context.Context) {
+func (t *Tunnel) accept(ctx context.Context, listener net.Listener, destination string) {
 	for {
-		c, err := t.listener.Accept()
+		c, err := listener.Accept()
 		if err != nil {
 			return
 		}
-		go t.forward(ctx, c)
+		go t.forward(ctx, c, destination)
 	}
 }
-func (t *Tunnel) forward(ctx context.Context, local net.Conn) {
+func (t *Tunnel) forward(ctx context.Context, local net.Conn, destination string) {
 	defer local.Close()
 	c := t.clientCopy()
 	if c == nil {
 		return
 	}
-	remote, err := c.Dial("tcp", t.destination)
+	remote, err := c.Dial("tcp", destination)
 	if err != nil {
 		return
 	}
@@ -244,8 +259,14 @@ func (t *Tunnel) Close() error {
 	if t.cancel != nil {
 		t.cancel()
 	}
-	if t.listener != nil {
-		_ = t.listener.Close()
+	t.mu.Lock()
+	listeners := make([]net.Listener, 0, len(t.listeners))
+	for _, l := range t.listeners {
+		listeners = append(listeners, l)
+	}
+	t.mu.Unlock()
+	for _, l := range listeners {
+		_ = l.Close()
 	}
 	select {
 	case <-t.done:

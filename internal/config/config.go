@@ -5,6 +5,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -30,10 +31,12 @@ type Config struct {
 	Connections []Connection          `yaml:"connections"`
 }
 type Defaults struct {
-	Readonly       *bool    `yaml:"readonly"`
-	ConnectTimeout Duration `yaml:"connect_timeout"`
-	QueryTimeout   Duration `yaml:"query_timeout"`
-	MaxRows        int      `yaml:"max_rows"`
+	Readonly             *bool    `yaml:"readonly"`
+	ConnectTimeout       Duration `yaml:"connect_timeout"`
+	QueryTimeout         Duration `yaml:"query_timeout"`
+	MaxRows              int      `yaml:"max_rows"`
+	MaxResultBytes       int      `yaml:"max_result_bytes"`
+	MaxConcurrentQueries int      `yaml:"max_concurrent_queries"`
 }
 type SSHProfile struct {
 	Host                     string    `yaml:"host"`
@@ -53,18 +56,21 @@ type Reconnect struct {
 	MaxDelay     Duration `yaml:"max_delay"`
 }
 type Connection struct {
-	ID             string   `yaml:"id"`
-	Driver         string   `yaml:"driver"`
-	Host           string   `yaml:"host"`
-	Port           int      `yaml:"port"`
-	Database       string   `yaml:"database"`
-	Username       string   `yaml:"username"`
-	PasswordFile   string   `yaml:"password_file"`
-	SSHProfile     string   `yaml:"ssh_profile"`
-	Readonly       *bool    `yaml:"readonly"`
-	ConnectTimeout Duration `yaml:"connect_timeout"`
-	QueryTimeout   Duration `yaml:"query_timeout"`
-	MaxRows        int      `yaml:"max_rows"`
+	ID                   string   `yaml:"id"`
+	Driver               string   `yaml:"driver"`
+	Host                 string   `yaml:"host"`
+	Port                 int      `yaml:"port"`
+	Database             string   `yaml:"database"`
+	Username             string   `yaml:"username"`
+	PasswordFile         string   `yaml:"password_file"`
+	PasswordEnv          string   `yaml:"password_env"`
+	SSHProfile           string   `yaml:"ssh_profile"`
+	Readonly             *bool    `yaml:"readonly"`
+	ConnectTimeout       Duration `yaml:"connect_timeout"`
+	QueryTimeout         Duration `yaml:"query_timeout"`
+	MaxRows              int      `yaml:"max_rows"`
+	MaxResultBytes       int      `yaml:"max_result_bytes"`
+	MaxConcurrentQueries int      `yaml:"max_concurrent_queries"`
 }
 
 func Load(path string) (*Config, error) {
@@ -105,6 +111,12 @@ func (c *Config) Validate(base string) error {
 	if len(c.Connections) == 0 {
 		return fmt.Errorf("at least one connection is required")
 	}
+	if c.Defaults.Readonly != nil && !*c.Defaults.Readonly {
+		return fmt.Errorf("defaults.readonly=false is forbidden")
+	}
+	if err := validateLimits("defaults", c.Defaults.ConnectTimeout, c.Defaults.QueryTimeout, c.Defaults.MaxRows, c.Defaults.MaxResultBytes, c.Defaults.MaxConcurrentQueries); err != nil {
+		return err
+	}
 	for name, p := range c.SSHProfiles {
 		if err := p.validate(base); err != nil {
 			return fmt.Errorf("ssh_profiles.%s: %w", name, err)
@@ -122,11 +134,19 @@ func (c *Config) Validate(base string) error {
 		if db.Host == "" || db.Port < 1 || db.Port > 65535 {
 			return fmt.Errorf("connection %q: valid host and port required", db.ID)
 		}
-		if db.Database == "" || db.Username == "" || db.PasswordFile == "" {
-			return fmt.Errorf("connection %q: database, username, password_file required", db.ID)
+		if db.Database == "" || db.Username == "" {
+			return fmt.Errorf("connection %q: database and username required", db.ID)
 		}
-		if err := secureFile(db.PasswordFile); err != nil {
-			return fmt.Errorf("connection %q: password_file: %w", db.ID, err)
+		if (db.PasswordFile == "") == (db.PasswordEnv == "") {
+			return fmt.Errorf("connection %q: exactly one of password_file or password_env is required", db.ID)
+		}
+		if db.PasswordFile != "" {
+			if err := secureFile(db.PasswordFile); err != nil {
+				return fmt.Errorf("connection %q: password_file: %w", db.ID, err)
+			}
+		}
+		if db.PasswordEnv != "" && !validEnvName(db.PasswordEnv) {
+			return fmt.Errorf("connection %q: invalid password_env", db.ID)
 		}
 		if db.SSHProfile != "" {
 			if _, ok := c.SSHProfiles[db.SSHProfile]; !ok {
@@ -136,8 +156,31 @@ func (c *Config) Validate(base string) error {
 		if db.Readonly != nil && !*db.Readonly {
 			return fmt.Errorf("connection %q: readonly=false is forbidden", db.ID)
 		}
+		if err := validateLimits("connection "+db.ID, db.ConnectTimeout, db.QueryTimeout, db.MaxRows, db.MaxResultBytes, db.MaxConcurrentQueries); err != nil {
+			return err
+		}
 	}
 	return nil
+}
+func validateLimits(scope string, connect, query Duration, rows, bytes, concurrent int) error {
+	if connect.Value() < 0 || query.Value() < 0 {
+		return fmt.Errorf("%s: timeouts must be non-negative", scope)
+	}
+	if connect.Value() > 5*time.Minute || query.Value() > 24*time.Hour {
+		return fmt.Errorf("%s: timeout exceeds safe bound", scope)
+	}
+	if rows < 0 || bytes < 0 || concurrent < 0 {
+		return fmt.Errorf("%s: limits must be non-negative", scope)
+	}
+	return nil
+}
+func validEnvName(s string) bool {
+	for i, r := range s {
+		if !(r == '_' || r >= 'A' && r <= 'Z' || i > 0 && r >= '0' && r <= '9') {
+			return false
+		}
+	}
+	return s != ""
 }
 func (p SSHProfile) validate(base string) error {
 	if p.Host == "" || p.Username == "" || p.PrivateKeyFile == "" {
@@ -184,7 +227,7 @@ func secureFile(path string) error {
 	if !info.Mode().IsRegular() {
 		return fmt.Errorf("must be a regular file")
 	}
-	if info.Mode().Perm()&0o077 != 0 {
+	if runtime.GOOS != "windows" && info.Mode().Perm()&0o077 != 0 {
 		return fmt.Errorf("permissions must not grant group or other access")
 	}
 	return nil
@@ -196,4 +239,14 @@ func ReadSecret(file string) (string, error) {
 		return "", e
 	}
 	return strings.TrimRight(string(b), "\r\n"), nil
+}
+func (c Connection) Password() (string, error) {
+	if c.PasswordEnv != "" {
+		v, ok := os.LookupEnv(c.PasswordEnv)
+		if !ok || v == "" {
+			return "", fmt.Errorf("credential environment variable is unavailable")
+		}
+		return v, nil
+	}
+	return ReadSecret(c.PasswordFile)
 }
