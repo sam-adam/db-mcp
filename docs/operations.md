@@ -18,9 +18,9 @@ An open SSH socket is not a database health assertion. Keepalives verify that th
 
 ## Releases
 
-Every push to `develop` produces CI-tested RC archives; every push to `main` produces stable-candidate archives. Both include Linux amd64/arm64 and macOS amd64/arm64 binaries plus a per-archive SHA-256 file. Stable GitHub Releases are created only by pushing an immutable `v*` tag for a commit already contained in `main`. The release workflow verifies source formatting, modules, vet, race-enabled tests, and publishes versioned archives and `checksums.txt`.
+Every push to `develop` produces CI-tested RC archives; every push to `main` produces stable-candidate archives. Both include Linux amd64/arm64 and macOS amd64/arm64 binaries plus a per-archive SHA-256 file. A `vX.Y.Z-rc.N` tag on a commit contained in `develop` creates a GitHub prerelease. A `vX.Y.Z` tag on a commit contained in `main` creates a stable GitHub Release. The release workflow verifies source formatting, modules, vet, race-enabled tests, and publishes versioned archives and `checksums.txt`.
 
-Create the tag only after the release PR is merged into `main`, for example: `git tag -a v0.1.0 -m 'v0.1.0' && git push origin v0.1.0`. The workflow intentionally fails if the tagged commit is not in `main`.
+For an RC, tag the selected `develop` commit, for example: `git tag -a v0.1.0-rc.1 -m 'v0.1.0-rc.1' && git push origin v0.1.0-rc.1`. For a stable release, create the tag only after the release PR is merged into `main`, for example: `git tag -a v0.1.0 -m 'v0.1.0' && git push origin v0.1.0`. The workflow intentionally fails if a tag is malformed or its commit is not contained in the matching release branch.
 
 ## Feature matrix
 
