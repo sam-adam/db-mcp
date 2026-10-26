@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [develop, master]
+    branches: [develop, main]
   pull_request:
-    branches: [develop, master]
+    branches: [develop, main]
 
 permissions:
   contents: read
@@ -32,23 +32,44 @@ jobs:
         run: go vet ./...
       - name: Test
         run: go test -race -coverprofile=coverage.out ./...
-      - name: Build
-        run: go build -trimpath -ldflags='-s -w' -o dist/db-mcp ./cmd/db-mcp
-      - name: Upload release-candidate build
-        if: matrix.go == '1.22.x' && github.ref == 'refs/heads/develop'
+
+  package:
+    name: Package ${{ matrix.goos }}/${{ matrix.goarch }}
+    needs: test
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.22.x'
+          check-latest: true
+          cache: true
+      - name: Build archive
+        env:
+          CHANNEL: ${{ github.ref_name == 'develop' && 'rc' || 'stable' }}
+        run: |
+          set -eu
+          name="db-mcp_${CHANNEL}_${GITHUB_SHA::7}_${{ matrix.goos }}_${{ matrix.goarch }}"
+          mkdir -p "stage/${name}" dist
+          CGO_ENABLED=0 GOOS='${{ matrix.goos }}' GOARCH='${{ matrix.goarch }}' go build -trimpath -ldflags='-s -w' -o "stage/${name}/db-mcp" ./cmd/db-mcp
+          tar -C stage -czf "dist/${name}.tar.gz" "$name"
+          sha256sum "dist/${name}.tar.gz" > "dist/${name}.sha256"
+      - name: Upload branch build
         uses: actions/upload-artifact@v4
         with:
-          name: db-mcp-rc-linux-amd64
-          path: |
-            dist/db-mcp
-            coverage.out
-          if-no-files-found: error
-      - name: Upload stable build
-        if: matrix.go == '1.22.x' && github.ref == 'refs/heads/master'
-        uses: actions/upload-artifact@v4
-        with:
-          name: db-mcp-stable-linux-amd64
-          path: |
-            dist/db-mcp
-            coverage.out
+          name: db-mcp-${{ github.ref_name == 'develop' && 'rc' || 'stable' }}-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/
           if-no-files-found: error
