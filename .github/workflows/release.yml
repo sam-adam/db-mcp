@@ -13,8 +13,39 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  classify:
+    name: Validate release channel
+    runs-on: ubuntu-latest
+    outputs:
+      prerelease: ${{ steps.channel.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: channel
+        name: Require a valid tag on its release branch
+        env:
+          TAG: ${{ github.ref_name }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -eu
+          if [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-rc\.[0-9]+$ ]]; then
+            branch=develop
+            prerelease=true
+          elif [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            branch=main
+            prerelease=false
+          else
+            echo "Tag must be vX.Y.Z or vX.Y.Z-rc.N" >&2
+            exit 1
+          fi
+          git fetch origin "$branch"
+          git merge-base --is-ancestor "$SHA" "origin/$branch"
+          echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+
   release:
-    name: Build and publish stable release
+    name: Build and publish release
+    needs: classify
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -25,10 +56,6 @@ jobs:
           go-version: '1.22.x'
           check-latest: true
           cache: true
-      - name: Require a commit contained in main
-        run: |
-          git fetch origin main
-          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
       - name: Verify source
         run: |
           go mod tidy
@@ -55,4 +82,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
-        run: gh release create "$TAG" dist/* --title "db-mcp $TAG" --generate-notes
+          PRERELEASE: ${{ needs.classify.outputs.prerelease }}
+        run: |
+          if [ "$PRERELEASE" = "true" ]; then
+            gh release create "$TAG" dist/* --title "db-mcp $TAG" --generate-notes --prerelease
+          else
+            gh release create "$TAG" dist/* --title "db-mcp $TAG" --generate-notes
+          fi
