@@ -8,7 +8,7 @@ A stdio MCP server for PostgreSQL and MySQL with optional, first-class SSH local
 go run ./cmd/db-mcp -config /secure/path/config.yaml
 ```
 
-Use [config.example.yaml](config.example.yaml) as the configuration reference. Credential, private-key, passphrase, and known-host files are external to YAML. `private_key_passphrase_file` is optional; its content is never logged or returned.
+Use [config.example.yaml](config.example.yaml) as a starter and [docs/configuration.md](docs/configuration.md) as the complete configuration reference. Credential, private-key, passphrase, and known-host files are external to YAML. `private_key_passphrase_file` is optional; its content is never logged or returned.
 
 The server implements `initialize`, `tools/list`, and `tools/call` over newline-delimited JSON-RPC on stdin/stdout. All database-facing tools require an explicit `connection_id`; there is no default connection. In addition to query, status, and tunnel tools it exposes read-only connection and schema inspection tools.
 
